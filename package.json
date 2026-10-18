@@ -1,0 +1,13 @@
+{
+  "name": "destino-frontera",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sitio web de Destino Frontera — Naturaleza que conecta",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs --dir dist"
+  },
+  "engines": { "node": ">=18" }
+}
