@@ -39,3 +39,16 @@ npm run preview   # revisa el sitio construido
 ## Marca
 
 Nombre: **Destino Frontera** · Eslogan: **Naturaleza que conecta**. Paleta: verde bosque `#253322`, oliva `#6C6C31`, salvia `#758458`, teal `#277175`, ocre `#D49721`, arena `#D4C9B4`, crema `#FAF7F1`. Titulares Cinzel y texto Montserrat.
+
+
+## Panel privado en Netlify
+
+- URL: `/panel` (o `/panel/`).
+- Usuario inicial: `Homero G`. Contraseña inicial configurada como variable secreta en Netlify, **nunca incluida en este repositorio**.
+- Primer ingreso: cambio obligatorio de contraseña (12 caracteres como mínimo).
+- Variables del sitio con ámbito Functions: `DF_ADMIN_HASH` (scrypt) y `DF_SESSION_SECRET` (cadena aleatoria larga).
+- El catálogo, la contraseña modificada y las fotografías subidas se guardan en almacenes persistentes Netlify Blobs. No se pierden con nuevos despliegues.
+- Administración: alta/edición/baja de destinos y experiencias, fotos de portada y galerías; posibilidad de ocultar registros.
+- Límites: JPG, PNG y WebP de hasta 3 MB cada archivo; 80 destinos y 150 experiencias como máximo.
+- Endpoints Netlify Functions: `/api/admin/*`, `/api/catalogo`, `/api/media/:id`.
+- Antes de comenzar actividad comercial, completar el aviso de privacidad y configurar recepción de solicitudes en Netlify Forms.

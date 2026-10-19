@@ -9,5 +9,10 @@
     "build": "node scripts/build.mjs",
     "preview": "node scripts/serve.mjs --dir dist"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.4"
+  }
 }
