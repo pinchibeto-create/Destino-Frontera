@@ -2,7 +2,7 @@ import {createHash,createHmac,randomBytes,scryptSync,timingSafeEqual} from 'node
 import {getStore} from '@netlify/blobs';
 
 const COOKIE='df_session';
-const USER='Homero G';
+const LEGACY_USER='Homero G';
 const HOURS=8;
 const value=(k)=>globalThis.Netlify?.env?.get(k)||process.env[k]||'';
 const auth=()=>getStore({name:'df-auth',consistency:'strong'});
@@ -14,15 +14,38 @@ const equal=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));retu
 const fingerprint=(hash)=>createHash('sha256').update(hash).digest('hex').slice(0,24);
 const hashPassword=(password)=>{const salt=randomBytes(16).toString('hex');return `scrypt:${salt}:${scryptSync(password,Buffer.from(salt,'hex'),64).toString('hex')}`};
 const compare=(password,hash)=>{const [type,salt,h]=String(hash).split(':');if(type!=='scrypt'||!/^[a-f0-9]{32}$/.test(salt||'')||!/^[a-f0-9]{128}$/.test(h||''))return false;return equal(scryptSync(password,Buffer.from(salt,'hex'),64).toString('hex'),h)};
-export async function credential(){const changed=await auth().get('credential',{type:'json'});return changed?.hash?{hash:changed.hash,change:false}:{hash:value('DF_ADMIN_HASH'),change:true}}
+async function accounts(){
+ let list=await auth().get('users',{type:'json'});
+ if(!Array.isArray(list)){
+  list=[];
+  const old=await auth().get('credential',{type:'json'});
+  const legacyHash=old?.hash||value('DF_ADMIN_HASH');
+  if(legacyHash)list.push({username:LEGACY_USER,hash:legacyHash,change:false,legacy:true});
+  try{
+   const bootstrap=JSON.parse(value('DF_BOOTSTRAP_USERS')||'[]');
+   for(const item of bootstrap){
+    const username=String(item?.username||'').trim().toLowerCase(),password=item?.password;
+    if(!/^[a-z0-9_-]{3,32}$/.test(username)||typeof password!=='string'||password.length<16||password.length>120)continue;
+    if(list.some(x=>x.username.toLowerCase()===username))continue;
+    list.push({username,hash:hashPassword(password),change:true,legacy:false});
+   }
+  }catch{}
+  await auth().setJSON('users',list);
+ }
+ if(value('DF_DISABLE_LEGACY')==='true'&&list.some(x=>x.legacy)){
+  list=list.filter(x=>!x.legacy);
+  await auth().setJSON('users',list);
+ }
+ return list;
+}
 const secret=()=>value('DF_SESSION_SECRET');
 const mac=(x)=>createHmac('sha256',secret()).update(x).digest('hex');
 export const clearCookie=`${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
-export function makeCookie(hash){if(secret().length<32)throw Error('Sesiones sin configurar');const end=Math.floor(Date.now()/1000)+3600*HOURS,plain=`v1.${end}.${fingerprint(hash)}`;return `${COOKIE}=${plain}.${mac(plain)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${3600*HOURS}`}
-export async function getSession(request){if(secret().length<32)return null;const cookie=(request.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(COOKIE+'='))?.slice(COOKIE.length+1);if(!cookie)return null;const parts=cookie.split('.');if(parts.length!==4||parts[0]!=='v1'||!/^[0-9]{10}$/.test(parts[1])||!/^[a-f0-9]{24}$/.test(parts[2])||!/^[a-f0-9]{64}$/.test(parts[3]))return null;const exp=Number(parts[1]);if(exp<Date.now()/1000||exp>Date.now()/1000+HOURS*3600+120)return null;if(!equal(parts[3],mac(parts.slice(0,3).join('.'))))return null;const cred=await credential();return equal(parts[2],fingerprint(cred.hash))?{user:USER,change:cred.change}:null}
-export const correctLogin=async(username,password)=>username===USER&&typeof password==='string'&&password.length<=120&&compare(password,(await credential()).hash);
-export const validPassword=p=>typeof p==='string'&&p.length>=12&&p.length<=120&&p.trim()===p&&p.toLowerCase()!==USER.toLowerCase();
-export async function updatePassword(password){const hash=hashPassword(password);await auth().setJSON('credential',{hash,changedAt:new Date().toISOString()});return hash}
+export function makeCookie(username,hash){if(secret().length<32)throw Error('Sesiones sin configurar');const end=Math.floor(Date.now()/1000)+3600*HOURS,plain=`v2.${end}.${username}.${fingerprint(hash)}`;return `${COOKIE}=${plain}.${mac(plain)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${3600*HOURS}`}
+export async function getSession(request){if(secret().length<32)return null;const cookie=(request.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(COOKIE+'='))?.slice(COOKIE.length+1);if(!cookie)return null;const parts=cookie.split('.');if(parts.length!==5||parts[0]!=='v2'||!/^[0-9]{10}$/.test(parts[1])||!/^[a-z0-9_-]{3,32}$/.test(parts[2])||!/^[a-f0-9]{24}$/.test(parts[3])||!/^[a-f0-9]{64}$/.test(parts[4]))return null;const exp=Number(parts[1]),plain=parts.slice(0,4).join('.');if(exp<Date.now()/1000||exp>Date.now()/1000+HOURS*3600+120)return null;if(!equal(parts[4],mac(plain)))return null;const account=(await accounts()).find(x=>x.username===parts[2]);return account&&equal(parts[3],fingerprint(account.hash))?{user:account.username,change:account.change}:null}
+export const correctLogin=async(username,password)=>{if(typeof username!=='string'||typeof password!=='string'||password.length>120)return null;const account=(await accounts()).find(x=>x.username===username.trim().toLowerCase());return account&&compare(password,account.hash)?account:null}
+export const validPassword=(p,username)=>typeof p==='string'&&p.length>=12&&p.length<=120&&p.trim()===p&&p.toLowerCase()!==String(username||'').toLowerCase();
+export async function updatePassword(username,password){const hash=hashPassword(password),list=await accounts(),index=list.findIndex(x=>x.username===username);if(index<0)throw Error('Cuenta no encontrada');list[index]={...list[index],hash,change:false};await auth().setJSON('users',list);return hash}
 export const sameOrigin=request=>request.headers.get('origin')===new URL(request.url).origin;
 export const validateURL=u=>typeof u==='string'&&(/^\/images\/destino-frontera\/[a-z0-9_./-]+\.(?:png|jpg|jpeg|webp)$/i.test(u)||/^\/api\/media\/[0-9a-f-]{36}$/.test(u));
 const clean=(value,n=100)=>typeof value==='string'?value.trim().slice(0,n):'';
